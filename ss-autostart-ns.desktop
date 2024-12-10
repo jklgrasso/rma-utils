@@ -1,0 +1,8 @@
+[Dekstop Entry]
+Type=Application
+Description=Auto starts the ss-setup.sh script with the "-n" switch
+Name=Stress Script Autostarter
+Exec=/home/$USER/Documents/stress-scripts/rma-setup.sh -ns
+Terminal=true
+StatupNotify=true
+Categories=System
