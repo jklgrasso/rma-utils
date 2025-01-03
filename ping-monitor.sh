@@ -5,20 +5,33 @@ list_interfaces() {
     # Use the `ip link` command to list network interfaces and filter out non-network interfaces
     interfaces=$(ip link show | grep -oP '^\d+: \K[^:]+')
 
-    echo "Available network interfaces:"
-    PS3="Select network interfaces (multiple choices allowed, e.g., 1 2 3): "
-    select interface in $interfaces; do
-        if [[ -n "$interface" ]]; then
-            selected_interfaces+=("$interface")
-            echo "You selected: $interface"
-        else
-            echo "Invalid selection, please try again."
-        fi
+    # Convert interfaces into an indexed array
+    interface_array=($interfaces)
 
-        # Ask if the user wants to select more interfaces or proceed
-        read -p "Do you want to select another interface? (y/n): " choice
-        if [[ "$choice" != "y" ]]; then
+    echo "Available network interfaces:"
+    for i in "${!interface_array[@]}"; do
+        echo "$((i + 1)): ${interface_array[i]}"
+    done
+
+    PS3="Select network interfaces (multiple choices allowed, separated by commas, e.g., 1,2,3): "
+
+    while true; do
+        read -p "$PS3" choices
+        if [[ $choices =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+            IFS=',' read -r -a selected_indices <<< "$choices"
+            selected_interfaces=()
+            for index in "${selected_indices[@]}"; do
+                if ((index >= 1 && index <= ${#interface_array[@]})); then
+                    selected_interfaces+=("${interface_array[index-1]}")
+                else
+                    echo "Invalid selection: $index. Please try again."
+                    continue 2
+                fi
+            done
+            echo "You selected: ${selected_interfaces[*]}"
             break
+        else
+            echo "Invalid input. Please use numbers separated by commas (e.g., 1,2,3)."
         fi
     done
 }
@@ -37,7 +50,7 @@ get_gateway() {
 # Get available interfaces
 list_interfaces
 
-# Log file where failures will be logged
+# Log file where failures and packet loss details will be logged
 log_file="ping_failures.log"
 
 # Loop through selected interfaces and get their gateways
@@ -51,17 +64,22 @@ while true; do
         # Get the gateway for the current interface
         gateway=$(ip route show dev $interface | grep default | awk '{print $3}')
 
-        # Ping the gateway using the selected interface
-        ping -I $interface -c 1 -W 1 $gateway > /dev/null
+        # Ping the gateway using the selected interface and capture output
+        ping_output=$(ping -I $interface -c 1 -W 1 $gateway 2>&1)
+        ping_status=$?
 
         # Check if ping was successful
-        if [ $? -ne 0 ]; then
-            # If ping failed, log the timestamp and failure
+        if [ $ping_status -ne 0 ]; then
+            # If ping failed, log the timestamp, failure, and output
             echo "$(date '+%Y-%m-%d %H:%M:%S') - Ping to gateway $gateway failed on interface $interface" >> $log_file
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - Ping to gateway $gateway failed on interface $interface"
+        #else
+            # Extract packet loss percentage from the ping output
+            #packet_loss=$(echo "$ping_output" | grep -oP '\d+(?=% packet loss)')
+            #echo "$(date '+%Y-%m-%d %H:%M:%S') - Ping to gateway $gateway on interface $interface succeeded with $packet_loss% packet loss" >> $log_file
         fi
     done
-    
+
     # Wait for 1 second before trying again
     sleep 1
 done
-
